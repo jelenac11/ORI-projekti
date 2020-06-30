@@ -1,6 +1,6 @@
 # ORIProjekat
 
-#PLUĆA
+# PLUĆA
 
 Kod za projekat pluća neće biti komitovan ovdje iz razloga što se koristi oko 2gb slika, pokretanje i izvršavanje samog koda je veoma sporo i teško za testiranje. Iz tog razloga je ovaj projekat razvijan na Google Colaboratory.
 
