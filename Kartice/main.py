@@ -94,3 +94,43 @@ def scale():
 
     scaler = StandardScaler()
     return scaler.fit_transform(podaci)
+
+def resavanjeOutleyera():
+    """Rjesavanje outleyera tako sto se primijeni logaritam nad svakom celijom
+    +1 zbog vrijednosti koje su 0"""
+    return podaciBezLayeraSkalirani.applymap(lambda x: np.log(x + 1))
+
+def izbacivanjeSuvisnogBrojaAtributa():
+    """Smanjuje dimenzionalnost podataka"""
+    pc = PCA(n_components=5)
+    pcfit=pc.fit(podaciBezLayeraSkalirani)
+    smanjeniAtr = pcfit.fit_transform(podaciBezLayeraSkalirani)
+    return smanjeniAtr
+
+def odredjivanjePotrebnogBrojaAtributa():
+    """Odredjuje se potreban broj atributa da se smanji dimenzionalnost
+    podataka radi lakseg klasterovanja"""
+    brojAtr = []
+    suma = []
+    for i in range(2, 14):
+        pc = PCA(n_components=i)
+        pcfit = pc.fit(podaciBezLayeraSkalirani)
+        suma=0
+        for v in pcfit.explained_variance_ratio_:
+            suma+=v
+        suma.append(suma)
+        brojAtr.append(i)
+    plt.plot(brojAtr,suma, marker='x')
+    plt.show()
+
+if __name__ == '__main__':
+    deskriptivnaStatistika()
+    fillNaN()
+    histogramRaspodjeleSvihKolona()
+    boxplotSvihKolona()
+    heatMapZaSveKolone()
+    podaciBezLayeraSkalirani = resavanjeOutleyera()
+    kolone=podaciBezLayeraSkalirani.columns
+    podaciBezLayeraSkalirani = scale()
+    odredjivanjePotrebnogBrojaAtributa()
+    skraceniPodaci = izbacivanjeSuvisnogBrojaAtributa()
