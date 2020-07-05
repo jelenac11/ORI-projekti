@@ -1,16 +1,12 @@
-from pip._internal.utils.misc import tabulate
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
-from sklearn.ensemble import RandomForestClassifier
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
-import operator
-from sklearn import metrics
-sns.set()
+from sklearn.preprocessing import StandardScaler
 
+sns.set()
 
 #radi potpunog prikaza prilikom print naredbe
 pd.set_option('display.max_columns', None)
@@ -39,7 +35,7 @@ def deskriptivnaStatistika():
     # deskriptivna statistika za sve kolone
     print(podaci.describe())
 
-def raspodjelaSvihKolona():
+"""def raspodjelaSvihKolona():
     # raspodjela svih kolona
     fig, axes = plt.subplots(nrows=3, ncols=3)
     im = 0
@@ -56,7 +52,7 @@ def raspodjelaSvihKolona():
         if im > 9:
             sns.distplot(podaci[column], ax=axes[(i - 9) // 3, (i - 9) % 3])
     plt.show()
-
+"""
 
 def histogramRaspodjeleSvihKolona():
     # histogram raspodjele podataka svih kolona
@@ -69,7 +65,7 @@ def heatMapZaSveKolone():
     u korelaciji sa nekim podatkom A, onda moramo provjeriti koji od tih podataka koji su u korelaciji sa
     podatkom A su u korelaciji jedni sa drugim. Oni koji jesu, jedan od njih zadrzavamo a ostale izbacimo"""
     plt.figure()
-    sns.heatmap(podaci.corr(), annot=True)
+    sns.heatmap(podaciBezLayeraSkalirani.corr(), annot=True)
     plt.show()
 
 
@@ -93,7 +89,37 @@ def scale():
         JER SE KORISTI DISTANCA KOJA JE OSJETLJIVA NA OVO"""
 
     scaler = StandardScaler()
-    return scaler.fit_transform(podaci)
+    return scaler.fit_transform(podaciBezLayeraSkalirani)
+
+def odredjivanjeBrojaKlastera():
+    """Odredjuje se potreban broj klastera"""
+    greske = []
+    brojKlastera = []
+    for brKlastera in range(1,15):
+        rez = KMeans(brKlastera)
+        rez.fit(skraceniPodaci)
+        greske.append(rez.inertia_)
+        brojKlastera.append(brKlastera)
+
+    plt.plot(brojKlastera, greske, marker="x")
+    plt.show()
+
+
+def odredjivanjePotrebnogBrojaAtributa():
+    """Odredjuje se potreban broj atributa da se smanji dimenzionalnost
+    podataka radi lakseg klasterovanja"""
+    brojAtr = []
+    suma = []
+    for i in range(2, 14):
+        pc = PCA(n_components=i)
+        pcfit = pc.fit(podaciBezLayeraSkalirani)
+        s=0
+        for v in pcfit.explained_variance_ratio_:
+            s+=v
+        suma.append(s)
+        brojAtr.append(i)
+    plt.plot(brojAtr,suma, marker='x')
+    plt.show()
 
 def resavanjeOutleyera():
     """Rjesavanje outleyera tako sto se primijeni logaritam nad svakom celijom
@@ -107,30 +133,92 @@ def izbacivanjeSuvisnogBrojaAtributa():
     smanjeniAtr = pcfit.fit_transform(podaciBezLayeraSkalirani)
     return smanjeniAtr
 
-def odredjivanjePotrebnogBrojaAtributa():
-    """Odredjuje se potreban broj atributa da se smanji dimenzionalnost
-    podataka radi lakseg klasterovanja"""
-    brojAtr = []
-    suma = []
-    for i in range(2, 14):
-        pc = PCA(n_components=i)
-        pcfit = pc.fit(podaciBezLayeraSkalirani)
-        suma=0
-        for v in pcfit.explained_variance_ratio_:
-            suma+=v
-        suma.append(suma)
-        brojAtr.append(i)
-    plt.plot(brojAtr,suma, marker='x')
+def kreirajiPrikaziKlastere():
+    km = KMeans(n_clusters=4, random_state=1)
+    km = km.fit(skraceniPodaci)
+    print(pd.Series(km.labels_).value_counts())
+    """for i in range(0,5):
+        for j in range(0, 5):
+            plt.subplots()
+            plt.scatter(skraceniPodaci[:, i], skraceniPodaci[:, j], c=km.labels_, cmap='Spectral', alpha=0.5)
+            plt.xlabel(i)
+            plt.ylabel(j)
+    plt.show()"""
+
+    plt.scatter(skraceniPodaci[:, 1], skraceniPodaci[:, 3], c=km.labels_, cmap='Spectral', alpha=0.5)
+    plt.xlabel(1)
+    plt.ylabel(3)
     plt.show()
+
+    #bar plot broja korisnika u svakom klasteru
+    broj = pd.Series(km.labels_).value_counts()
+    plt.bar(broj.index.values,broj.values)
+    plt.show()
+
+    #dodjela broja klastera svakom korisniku
+    podaciSaKlasterom = pd.concat([orgPodaci, pd.Series(km.labels_, name='Grupa')], axis=1)
+    #racunanje srednje vrijednosti svake kolone za svaki klaster
+    print(podaciSaKlasterom.groupby("Grupa").mean().T)
+    podaciSaKlasterom = podaciSaKlasterom.applymap(lambda x: np.log(x + 1))
+    podaciSaKlasterom = podaciSaKlasterom.groupby("Grupa").mean()
+
+    # bar plot prikaz svakog klastera
+    plt.subplots()
+    podaciSaKlasterom.iloc[0,:].plot(kind='bar')
+
+    plt.subplots()
+    podaciSaKlasterom.iloc[1,:].plot(kind='bar')
+
+    plt.subplots()
+    podaciSaKlasterom.iloc[2,:].plot(kind='bar')
+
+    plt.subplots()
+    podaciSaKlasterom.iloc[3,:].plot(kind='bar')
+
+    plt.show()
+def dodajNoveKolone():
+    #dodavanje novih kolona
+    podaci['AVG_PURCHASE'] = (podaci['PURCHASES'] + 1) / (podaci['PURCHASES_TRX'] + 1)
+    podaci['AVG_CASH_ADVANCE'] = (podaci['CASH_ADVANCE'] + 1) / (podaci['CASH_ADVANCE_TRX'] + 1)
+
+
+def odrediTipKupovine(value):
+    #odredjuje se tip kupovine korisnika
+    if value['ONEOFF_PURCHASES_FREQUENCY'] == 0 and value['PURCHASES_INSTALLMENTS_FREQUENCY'] == 0:
+        return 'NOT_BUYING'
+    elif value['ONEOFF_PURCHASES_FREQUENCY'] > 0 and value['PURCHASES_INSTALLMENTS_FREQUENCY'] == 0:
+        return 'ONEOFF'
+    elif value['ONEOFF_PURCHASES_FREQUENCY'] == 0 and value['PURCHASES_INSTALLMENTS_FREQUENCY'] > 0:
+        return 'INSTALLMENTS'
+    elif value['ONEOFF_PURCHASES_FREQUENCY'] > 0 and value['PURCHASES_INSTALLMENTS_FREQUENCY'] > 0:
+        return 'BOTH'
+
+def izbaciAtribute():
+    #izbacuju se suvisni atributi
+    podaciBezLayeraSkalirani.drop(['TYPE_OF_BUYING','BALANCE','PURCHASES','ONEOFF_PURCHASES','INSTALLMENTS_PURCHASES','CASH_ADVANCE','PAYMENTS','MINIMUM_PAYMENTS','PRC_FULL_PAYMENT','CREDIT_LIMIT'],axis=1,inplace=True)
+    print(podaciBezLayeraSkalirani.head())
+
+def dodajDummy():
+    #dodaju se dummys na osnovu tipa kupovine
+    dummy = pd.concat([podaci, pd.get_dummies(podaci['TYPE_OF_BUYING'])], axis=1)
+    return dummy
+
 
 if __name__ == '__main__':
     deskriptivnaStatistika()
     fillNaN()
     histogramRaspodjeleSvihKolona()
     boxplotSvihKolona()
+    dodajNoveKolone()
+    podaci['TYPE_OF_BUYING'] = podaci.apply(odrediTipKupovine, axis=1)
+    podaciBezLayeraSkalirani = dodajDummy()
     heatMapZaSveKolone()
+    orgPodaci = podaciBezLayeraSkalirani.drop(['TYPE_OF_BUYING'],axis=1)
+    izbaciAtribute()
     podaciBezLayeraSkalirani = resavanjeOutleyera()
     kolone=podaciBezLayeraSkalirani.columns
     podaciBezLayeraSkalirani = scale()
     odredjivanjePotrebnogBrojaAtributa()
     skraceniPodaci = izbacivanjeSuvisnogBrojaAtributa()
+    odredjivanjeBrojaKlastera()
+    kreirajiPrikaziKlastere()
