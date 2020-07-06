@@ -1,3 +1,4 @@
+from IPython.display import display, HTML
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 import pandas as pd
@@ -5,9 +6,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
 from sklearn.preprocessing import StandardScaler
-
+from sklearn.tree import DecisionTreeClassifier, _tree
 sns.set()
-
 #radi potpunog prikaza prilikom print naredbe
 pd.set_option('display.max_columns', None)
 pd.set_option('display.max_rows', None)
@@ -135,7 +135,7 @@ def izbacivanjeSuvisnogBrojaAtributa():
 
 def kreirajiPrikaziKlastere():
     km = KMeans(n_clusters=4, random_state=1)
-    km = km.fit(skraceniPodaci)
+    klasteri = km.fit_predict(skraceniPodaci)
     print(pd.Series(km.labels_).value_counts())
     """for i in range(0,5):
         for j in range(0, 5):
@@ -144,10 +144,16 @@ def kreirajiPrikaziKlastere():
             plt.xlabel(i)
             plt.ylabel(j)
     plt.show()"""
+    cluster_report(orgPodaci,klasteri)
 
-    plt.scatter(skraceniPodaci[:, 1], skraceniPodaci[:, 3], c=km.labels_, cmap='Spectral', alpha=0.5)
+    fig, ax = plt.subplots()
+    scatter = ax.scatter(skraceniPodaci[:, 1], skraceniPodaci[:, 3], c=km.labels_, cmap='Spectral', alpha=0.5)
+
     plt.xlabel(1)
     plt.ylabel(3)
+    legend1 = ax.legend(*scatter.legend_elements(),
+                        loc="lower left", title="Klasteri")
+    ax.add_artist(legend1)
     plt.show()
 
     #bar plot broja korisnika u svakom klasteru
@@ -203,6 +209,68 @@ def dodajDummy():
     dummy = pd.concat([podaci, pd.get_dummies(podaci['TYPE_OF_BUYING'])], axis=1)
     return dummy
 
+def get_class_rules(tree: DecisionTreeClassifier, feature_names: list):
+    inner_tree: _tree.Tree = tree.tree_
+    classes = tree.classes_
+    class_rules_dict = dict()
+
+
+    def tree_dfs(node_id=0, current_rule=[]):
+        # feature[i] holds the feature to split on, for the internal node i.
+        split_feature = inner_tree.feature[node_id]
+        if split_feature != _tree.TREE_UNDEFINED:  # internal node
+            name = feature_names[split_feature]
+            threshold = inner_tree.threshold[node_id]
+            # left child
+            left_rule = current_rule + ["({} <= {})".format(name, threshold)]
+            tree_dfs(inner_tree.children_left[node_id], left_rule)
+            # right child
+            right_rule = current_rule + ["({} > {})".format(name, threshold)]
+            tree_dfs(inner_tree.children_right[node_id], right_rule)
+        else:  # leaf
+            dist = inner_tree.value[node_id][0]
+            dist = dist / dist.sum()
+            max_idx = dist.argmax()
+            if len(current_rule) == 0:
+                rule_string = "ALL"
+            else:
+                rule_string = " and ".join(current_rule)
+            # register new rule to dictionary
+            selected_class = classes[max_idx]
+            class_probability = dist[max_idx]
+            class_rules = class_rules_dict.get(selected_class, [])
+            class_rules.append((rule_string, class_probability))
+            class_rules_dict[selected_class] = class_rules
+
+    tree_dfs()  # start from root, node_id = 0
+    return class_rules_dict
+
+
+def cluster_report(data: pd.DataFrame, clusters, min_samples_leaf=50, pruning_level=0.01):
+    # Create Model
+    tree = DecisionTreeClassifier(min_samples_leaf=min_samples_leaf, ccp_alpha=pruning_level)
+    tree.fit(data, clusters)
+
+    # Generate Report
+    feature_names = data.columns
+    class_rule_dict = get_class_rules(tree, feature_names)
+
+    report_class_list = []
+    for class_name in class_rule_dict.keys():
+        rule_list = class_rule_dict[class_name]
+        combined_string = ""
+        for rule in rule_list:
+            combined_string += "[{}] {}\n\n".format(rule[1], rule[0])
+        report_class_list.append((class_name, combined_string))
+
+    cluster_instance_df = pd.Series(clusters).value_counts().reset_index()
+    cluster_instance_df.columns = ['class_name', 'instance_count']
+    report_df = pd.DataFrame(report_class_list, columns=['class_name', 'rule_list'])
+    report_df = pd.merge(cluster_instance_df, report_df, on='class_name', how='left')
+    pretty_print(report_df.sort_values(by='class_name')[['class_name', 'instance_count', 'rule_list']])
+
+def pretty_print(df):
+    print(df.to_string())
 
 if __name__ == '__main__':
     deskriptivnaStatistika()
