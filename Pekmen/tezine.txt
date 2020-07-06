@@ -1,1 +1,0 @@
-{'#-of-food-carrying': -1.0, 'successor-score': 35.0, 'get-capsule': -10.0, '#-of-ghosts-1-step-away': 3.0, 'closest-food': -10.0, 'back': 20.0, 'reverse': -6.0, 'eats-ghost': -20.0}

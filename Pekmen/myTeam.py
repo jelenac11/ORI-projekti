@@ -21,7 +21,9 @@ from util import nearestPoint
 trenutnaPartija = 0
 brojTreninga = 0
 prethodnoStanje = (0, 0)
+prethodnoStanjeDuha = (0, 0)
 vremeUplasenogDuha = 0
+lastPacmanNum = 0
 alfa = 0.8
 epsilon = 0.5
 gama = 0.8
@@ -50,16 +52,6 @@ class ReflexCaptureAgent(CaptureAgent):
   def registerInitialState(self, gameState):
     self.start = gameState.getAgentPosition(self.index)
     CaptureAgent.registerInitialState(self, gameState)
-    self.weights = {
-      '#-of-food-carrying': -1.0, 
-      'successor-score': 35.0, 
-      'get-capsule': -10.0, 
-      '#-of-ghosts-1-step-away': 3.0, 
-      'closest-food': -10.0,
-      'back': 20.0, 
-      'reverse': -6.0,
-      'eats-ghost': -20.0
-    }
     self.gamma = 0.8
     self.reward = 0
     
@@ -107,6 +99,19 @@ class ReflexCaptureAgent(CaptureAgent):
 
 
 class OffensiveApproximateQAgent(ReflexCaptureAgent):
+
+  def __init__(self, index):
+    ReflexCaptureAgent.__init__(self, index)
+    self.weights = {
+      '#-of-food-carrying': -1.0048111982119707, 
+      'successor-score': 35.45437639124567, 
+      'get-capsule': -10.7188370452800166, 
+      '#-of-ghosts-1-step-away': 2.9985296771173653, 
+      'closest-food': -11.945573343940575,
+      'back': 19.92251842396154, 
+      'reverse': -5.286601882820538,
+      'eats-ghost': -19.7983292721274573,
+    }
 
   def getQValue(self, gameState, action):
     features = self.getFeatures(gameState, action)
@@ -205,9 +210,9 @@ class OffensiveApproximateQAgent(ReflexCaptureAgent):
       reward += 15
 
     global prethodnoStanje
-    # ako ga je duh pojeo dobija kaznu od -100 poena
+    # ako ga je duh pojeo dobija kaznu od -25 poena
     if (abs(prethodnoStanje[0] - xAfterMove) > 1 or abs(prethodnoStanje[1] - yAfterMove) > 1) and prethodnoStanje != (0, 0):
-      reward -= 100
+      reward -= 25
     prethodnoStanje = (xAfterMove, yAfterMove)
 
     # ako je pojeo duha dobija nagradu od 20 poena
@@ -435,7 +440,7 @@ class OffensiveApproximateQAgent(ReflexCaptureAgent):
       epsilon = 0
       alfa = 0
 
-    f = open("tezine.txt", "w")
+    f = open("tezineOffensive.txt", "w")
     f.write(str(self.weights))
     f.close()
     
@@ -443,37 +448,43 @@ class OffensiveApproximateQAgent(ReflexCaptureAgent):
 class DefensiveApproximateQAgent(ReflexCaptureAgent):
 
   def __init__(self, index):
-    CaptureAgent.__init__(self, index)
+    ReflexCaptureAgent.__init__(self, index)
+    self.weights = {
+      'onDefense': 99.2545807853552042, 
+      'invaderDist': -9.628649201356264, 
+      'nearDist': -10.278645196644497, 
+      'numInvaders': -999.9476533334391,
+      'reverse': -10
+    }
     self.defendingFood = []
     self.target = ()
-    self.isTargetToFood = False
-
-  def getBorder(self,gameState):
-    mid = gameState.data.layout.width/2
-
-    if self.red:
-      mid = mid - 1
-    else:
-      mid = mid + 1
-
-    legalPositions = [p for p in gameState.getWalls().asList(False) if p[1] > 1]
-    border = [p for p in legalPositions if p[0] == mid]
-    return border
+    self.gamma = 0.8
+    self.foodEaten = False
   
   def getWeights(self, gameState, action):
-    return { 
-      'onDefense': 100, 
-      'invaderDist': -10, 
-      'nearDist': -10, 
-      'reverse': -10,
-      'numInvaders': -1000
-    }
-  
-  def getAction(self, gameState):
+    return self.weights
+
+  def getQValue(self, gameState, action):
+    features = self.getFeatures(gameState, action)
+    value = 0.0
+    for feature in features:
+      value += features[feature] * self.weights[feature]
+    return value
+
+  def computeValueFromQValues(self, state):
+    possibleStateQValues = util.Counter()
+    for action in state.getLegalActions(self.index):
+      possibleStateQValues[action] = self.getQValue(state, action)
+
+    if len(possibleStateQValues) > 0:
+      return possibleStateQValues[possibleStateQValues.argMax()]
+    return 0.0
+
+  def computeActionFromQValues(self, gameState):
     actions = gameState.getLegalActions(self.index)
     myCurrentPos = gameState.getAgentState(self.index).getPosition()
     initPos = gameState.getInitialAgentPosition(self.index)
-    actions.remove(Directions.STOP)
+    if "Stop" in actions: actions.remove("Stop")
 
     if gameState.getAgentState(self.index).scaredTimer == 0:
       for a in actions:
@@ -497,24 +508,115 @@ class DefensiveApproximateQAgent(ReflexCaptureAgent):
         if dist < bestDist:
           bestAction = action
           bestDist = dist
-      return bestAction              
+      return bestAction          
 
     return random.choice(bestActions)
+
+  def getPolicy(self, gameState):
+    return  self.computeActionFromQValues(gameState)
+
+  def computeReward(self, gameState, action):
+    nextState = self.getSuccessor(gameState, action)
+    myCurrentPos =  gameState.getAgentState(self.index).getPosition()
+    reward = 0
+    myFood = self.getFoodYouAreDefending(gameState).asList()
+
+    # ako mu je protivnik pojeo hranu dobija kaznu od -2 poena
+    if len(self.defendingFood) > len(myFood):
+      reward = -2
+
+    enemies = []
+    enemyGhost = []
+    closestEnemyPacmanDist = 9999
+    for opponent in self.getOpponents(gameState):
+      enemy = gameState.getAgentState(opponent)
+      enemies.append(enemy)
+    enemyPosition = [enem.getPosition() for enem in enemies]
+    closestEnemyDist = (min([self.getMazeDistance(myCurrentPos, enPos) for enPos in enemyPosition]))
+    closestEnemy = [en for en in enemies if self.getMazeDistance(myCurrentPos, en.getPosition()) == closestEnemyDist][0]
+
+    enemyPacman = [a for a in enemies if a.isPacman and a.getPosition() != None]
+    enemyPacmanPosition = [pacman.getPosition() for pacman in enemyPacman]
+    closestEnemyPacmanDist = 9999
+    if len(enemyPacman) > 0:
+      closestEnemyPacmanDist = (min([self.getMazeDistance(myCurrentPos, pacPos) for pacPos in enemyPacmanPosition]))
+      
+    x, y = gameState.getAgentPosition(self.index)
+    dx, dy = Actions.directionToVector(action)
+    xAfterMove, yAfterMove = int(x + dx), int(y + dy)
+
+    mid = gameState.data.layout.width / 2
+    if gameState.isOnRedTeam(self.index):
+      mid = mid + 1
+    else:
+      mid = mid - 1
+    legalPositions = [p for p in gameState.getWalls().asList(False) if p[1] > 1]
+    border = [p for p in legalPositions if p[0] == mid]
+    enemyOnBorder = [e for e in enemies if e.getPosition() in border]
+    global lastPacmanNum
+
+    # ako je neprijatelj vratio hranu na svoju polovinu, defanzivni agent dobija kaznu od - 3 poena
+    if len(enemyOnBorder) > 0 and lastPacmanNum > len(enemyPacman):
+      reward -= 3
+
+    # ako je pojeo neprijatelja dobija nagradu od 25 poena
+    if lastPacmanNum > len(enemyPacman) and len(enemyOnBorder) == 0:
+      reward += 25
+
+    lastPacmanNum = len(enemyPacman)
+
+    global prethodnoStanjeDuha
+    # ako ga je protivnicki pakman pojeo dobija kaznu od -50 poena
+    if (abs(prethodnoStanjeDuha[0] - xAfterMove) > 1 or abs(prethodnoStanjeDuha[1] - yAfterMove) > 1) and prethodnoStanjeDuha != (0, 0):
+      reward -= 50
+    prethodnoStanjeDuha = (xAfterMove, yAfterMove)
+
+    return reward
+
+  def update(self, gameState, action, nextState, reward):
+    features = self.getFeatures(gameState,action)
+    diff = alfa * ((reward + self.gamma * self.computeValueFromQValues(nextState)) - self.getQValue(gameState, action))
+    for feature in features:
+      self.weights[feature] = self.weights[feature] + diff * features[feature]
+
+  def getAction(self, gameState):
+    legalActions = gameState.getLegalActions(self.index)
+    action = None
+    
+    if len(legalActions) > 0:
+      if util.flipCoin(epsilon):
+        action = random.choice(legalActions)
+      else:
+        action = self.getPolicy(gameState)
+
+    nextState = self.getSuccessor(gameState, action)
+    reward = self.computeReward(gameState, action)
+    self.update(gameState, action, nextState, reward)
+    return action
 
   def getFeatures(self, gameState, action):
     features = util.Counter()
     successor = self.getSuccessor(gameState, action)
+    walls = gameState.getWalls()
     nextState = successor.getAgentState(self.index)
     nextPosition = nextState.getPosition()
     currentPosition = gameState.getAgentState(self.index).getPosition()
     myFood = self.getFoodYouAreDefending(gameState).asList()
-    borderPos = random.choice(self.getBorder(gameState))
+
+    mid = gameState.data.layout.width / 2
+    if gameState.isOnRedTeam(self.index):
+      mid = mid - 1
+    else:
+      mid = mid + 1
+    legalPositions = [p for p in gameState.getWalls().asList(False) if p[1] > 1]
+    border = [p for p in legalPositions if p[0] == mid]
+    borderPos = random.choice(border)
 
     # lociraj pojedenu tacku
     if len(self.defendingFood) > len(myFood):
       self.target = list(set(self.defendingFood) - set(myFood))[0]
       self.defendingFood = myFood
-      self.isTargetToFood = True
+      self.foodEaten = True
     
     # kad se ispovraca
     if len(self.defendingFood) < len(myFood):
@@ -526,11 +628,11 @@ class DefensiveApproximateQAgent(ReflexCaptureAgent):
     opponents = [successor.getAgentState(i) for i in self.getOpponents(successor)]
     nearOpponents = [i for i in opponents if (not i.isPacman) and (i.getPosition() != None)]
     invaders = [i for i in opponents if i.isPacman and i.getPosition() != None]
-    features['numInvaders'] = len(invaders)
+    features['numInvaders'] = len(invaders) / (walls.width * walls.height)
 
     if len(invaders) > 0:
       invaderDist = [self.getMazeDistance(nextPosition, a.getPosition()) for a in invaders]
-      features['invaderDist'] = min(invaderDist)
+      features['invaderDist'] = min(invaderDist) / (walls.width * walls.height)
 
       invaderDistClose = [self.getMazeDistance(currentPosition, a.getPosition()) for a in invaders]
 
@@ -541,11 +643,16 @@ class DefensiveApproximateQAgent(ReflexCaptureAgent):
         if action == reverse: features['reverse'] = 1
           
       self.target = borderPos
-      self.isTargetToFood = False
+      self.foodEaten = False
     if len(invaders) == 0:
       # ako nema pakmana na nasoj polovini i nije pojedena hrana, drzi se blizu protivnickih duhova
-      if len(nearOpponents) > 0 and self.isTargetToFood == False:
+      if len(nearOpponents) > 0 and self.foodEaten == False:
         nearDist = [self.getMazeDistance(nextPosition, a.getPosition()) for a in nearOpponents]
-        features['nearDist'] = min(nearDist)
+        features['nearDist'] = min(nearDist) / (walls.width * walls.height)
   
     return features
+
+  def final(self, state):
+    f = open("tezineDefensive.txt", "w")
+    f.write(str(self.weights))
+    f.close()
